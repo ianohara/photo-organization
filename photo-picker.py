@@ -9,9 +9,10 @@
 ################################################################################
 from __future__ import print_function
 
-from PIL import ImageTk, Image
-from tkMessageBox import showinfo
-import argparse, os, shutil, sys, timer
+from PIL import ImageTk
+from PIL import Image
+from tkMessageBox import showinfo, askquestion
+import argparse, os, shutil, sys, time
 import Tkinter as Tk
 
 def usage(msg=''):
@@ -27,14 +28,16 @@ def verbose(*a, **kwargs):
 
 def exit_success():
     showinfo("Successfully completed!",
-             "There are no more images to keep/pass. Kept images writen to '%s'." % args.out_dir)
+             "There are no more images to keep/pass. "
+             "Kept images writen to '%s'." % args.out_dir)
     sys.exit(0)
 
 def open_image(fname):
     assert os.path.isfile(fname)
-    c.image = ImageTk.PhotoImage(file=fname)
-    c.create_image(0,0, anchor=Tk.NW, image=c.image)
-    c.configure(c, scrollregion=(0,0,c.image.width(), c.image.height()))
+    c.image_full = Image.open(fname)
+    c.image = ImageTk.PhotoImage(c.image_full.resize((rw_min, rh_min)))
+    c.create_image(0, 0, anchor=Tk.NW, image=c.image)
+    c.configure(c, scrollregion=(0, 0, c.image.width(), c.image.height()))
 
 def next_image():
     global current_image
@@ -58,9 +61,10 @@ def keep_image():
 
     if do_it:
         verbose("Keeping current image: ", current_image)
-        shutil.copyfile(current_image, keep_path)
+        photo_relocator(current_image, keep_path)
     else:
-        verbose("Wanted to keep image '%s' but it already exists at the destination, so skipping..." % current_image)
+        verbose("Wanted to keep image '%s' but it already exists "
+                "at the destination, so skipping..." % current_image)
 
     next_image()
 
@@ -68,11 +72,27 @@ def pass_image():
     verbose("Passing on current image: ", current_image)
     next_image()
 
-ap = argparse.ArgumentParser(description="Look for all images in a directory and copy selected images to a new directory for 'keeping'.  The originals are left untouched.")
-ap.add_argument("dir", type=str, help="The directory to scan for source images.")
-ap.add_argument("--out_dir", "-o", type=str, default="/tmp/kept_photos", help="The output directory in which kept photos should be put.")
-ap.add_argument("--types", nargs="+", default=["png"], type=str, help="File types to consider as images (eg: 'png', 'jpg', etc)")
-ap.add_argument("--verbose", action="store_true", help="Turn on verbose output.")
+ap = argparse.ArgumentParser(description="Look for all images in a directory "
+                             "and copy selected images to a new directory for "
+                             "'keeping'.  The originals are left untouched.")
+ap.add_argument("dir",
+                type=str,
+                help="The directory to scan for source images.")
+ap.add_argument("--out_dir", "-o",
+                type=str,
+                default="/tmp/kept_photos",
+                help="The output directory in which kept photos should be put.")
+ap.add_argument("--types",
+                nargs="+",
+                default=["png", "jpg", "JPG"],
+                type=str,
+                help="File types to consider as images (eg: 'png', 'jpg', etc)")
+ap.add_argument("--verbose",
+                action="store_true",
+                help="Turn on verbose output.")
+ap.add_argument("--move",
+                action="store_true",
+                help="Destructively move photos instead of copying them.")
 
 args = ap.parse_args()
 image_paths = []
@@ -86,16 +106,22 @@ if not os.path.isdir(args.out_dir):
     except OSError as e:
         usage("Could not create '%s' because: %s" % (args.out_dir, str(e)))
 
-def image_list_builder(_, dirs, files):
+if args.move:
+    verbose("Using shutil.move as photo_relocator (destructively moving)")
+    photo_relocator = shutil.move
+else:
+    verbose("Using shutil.copyfile as photo_relocator (leaving original)")
+    photo_relocator = shutil.copyfile
+
+def image_list_builder(_, directory, files):
     for f in files:
         if any([f.endswith(t) for t in args.types]):
-            image_paths.append(os.path.abspath(f))
+            image_paths.append(os.path.abspath(os.path.join(directory, f)))
 
 os.path.walk(args.dir, image_list_builder, None)
-
+image_paths = sorted(image_paths)
 verbose("Found images: ")
 verbose("\n".join([i for i in image_paths]))
-
 
 current_image=None
 
